@@ -12,18 +12,7 @@ enum class MatMulImpl
     cuBLAS
 };
 
-#define CUBLAS_CHECK(call)                                                  \
-    do                                                                      \
-    {                                                                       \
-        cublasStatus_t status = call;                                       \
-        if (status != CUBLAS_STATUS_SUCCESS)                                \
-        {                                                                   \
-            fprintf(stderr, "cuBLAS error at %s:%d\n", __FILE__, __LINE__); \
-            exit(EXIT_FAILURE);                                             \
-        }                                                                   \
-    } while (0)
-
-__global__ void matmul(float* a, float* b, float* c, int64_t m, int64_t k, int64_t n)
+__global__ void simple_matmul(float* a, float* b, float* c, int64_t m, int64_t k, int64_t n)
 {
     // Matrix multiplication between a and b, storing in c.
     // a is M x K.
@@ -52,17 +41,16 @@ __global__ void matmul_shm(float* a, float* b, float* c, int64_t m, int64_t k, i
     // a is M x K.
     // b is K x N.
     // c is M X N;
+    // TODO: Assuming block size is 32.
+    constexpr std::size_t blockSize{32};
 
     // TODO: Dynamically allocate shared memory.
     // TODO: Remove assumption of hardcoded block size.
-    __shared__ float shm_a[32][32];
-    __shared__ float shm_b[32][32];
+    __shared__ float shm_a[blockSize][blockSize];
+    __shared__ float shm_b[blockSize][blockSize];
 
     int64_t col{blockIdx.x * blockDim.x + threadIdx.x};
     int64_t row{blockIdx.y * blockDim.y + threadIdx.y};
-
-    // TODO: Assuming block size is 32.
-    std::size_t blockSize{32};
 
     float element{0.0f};
     for (std::size_t i{0}; i < (k + blockSize - 1) / blockSize; ++i)
@@ -106,17 +94,6 @@ __global__ void matmul_shm(float* a, float* b, float* c, int64_t m, int64_t k, i
     }
 }
 
-void populateMatrix(RowMatrix& mat)
-{
-    for (std::size_t i{0}; i < mat.rows(); ++i)
-    {
-        for (std::size_t j{0}; j < mat.cols(); ++j)
-        {
-            mat(i, j) = (rand() % 1000 - 500) / 500.0;
-        }
-    }
-}
-
 RowMatrix matmulCuda(const RowMatrix& matA, const RowMatrix& matB, MatMulImpl impl)
 {
     RowMatrix result(matA.rows(), matB.cols());
@@ -133,6 +110,7 @@ RowMatrix matmulCuda(const RowMatrix& matA, const RowMatrix& matB, MatMulImpl im
     cudaMemcpy(gpuMatA, matA.data(), sizeof(float) * matA.size(), cudaMemcpyHostToDevice);
     cudaMemcpy(gpuMatB, matB.data(), sizeof(float) * matB.size(), cudaMemcpyHostToDevice);
 
+    // NOTE: Our SHM kernel has a hardcoded blocksize of 32, 32
     dim3 blockSize(32, 32);
     dim3 blocks{static_cast<uint32_t>((N + blockSize.y - 1) / blockSize.y),
                 static_cast<uint32_t>((M + blockSize.x - 1) / blockSize.x)};
@@ -142,13 +120,11 @@ RowMatrix matmulCuda(const RowMatrix& matA, const RowMatrix& matB, MatMulImpl im
     {
         case MatMulImpl::Naive:
         {
-            std::cout << "Using naive matmul.\n";
-            matmul<<<blocks, blockSize>>>(gpuMatA, gpuMatB, gpuMatResult, matA.rows(), matA.cols(), matB.cols());
+            simple_matmul<<<blocks, blockSize>>>(gpuMatA, gpuMatB, gpuMatResult, matA.rows(), matA.cols(), matB.cols());
             break;
         }
         case MatMulImpl::SharedMem:
         {
-            std::cout << "Using shared memory matmul.\n";
             matmul_shm<<<blocks, blockSize>>>(gpuMatA, gpuMatB, gpuMatResult, matA.rows(), matA.cols(), matB.cols());
             break;
         }
@@ -156,9 +132,9 @@ RowMatrix matmulCuda(const RowMatrix& matA, const RowMatrix& matB, MatMulImpl im
         {
             cublasHandle_t handle;
             CUBLAS_CHECK(cublasCreate(&handle));
+            // cublasSetMathMode(handle, CUBLAS_TF32_TENSOR_OP_MATH); // NOTE: Allow the use of Tensor Cores for FP32.
             const float alpha = 1.0f;
             const float beta = 0.0f;
-            std::cout << "Calling cublasSgemm" << std::endl;
             CUBLAS_CHECK(cublasSgemm(handle,
                                      CUBLAS_OP_N,  // transA for cuBLAS (B^T)
                                      CUBLAS_OP_N,  // transB for cuBLAS (A^T)
@@ -180,11 +156,8 @@ RowMatrix matmulCuda(const RowMatrix& matA, const RowMatrix& matB, MatMulImpl im
         default:
             std::cerr << "Invalid operation!\n";
             exit(1);
-
-            cudaDeviceSynchronize();
-            std::cout << "Kernel computation time: ";
-            reportTime(tKernel);
     }
+
     cudaDeviceSynchronize();
     std::cout << "Kernel computation time: ";
     reportTime(tKernel);
@@ -200,9 +173,8 @@ RowMatrix matmulCuda(const RowMatrix& matA, const RowMatrix& matB, MatMulImpl im
 
 int main()
 {
-    // 1000 x 1000 x 1000 takes about ~10-11 seconds in CPU.
-    // 20000 x 10000 x 20000 takes about 7 seconds with Naive, ~1-2s with SharedMem.
-    constexpr std::size_t M{20000}, K{10000}, N{20000};
+    constexpr std::size_t M{4096}, K{8192}, N{4096};
+
     std::cout << "Creating matrices..." << std::endl;
     RowMatrix matA(M, K), matB(K, N);
 
@@ -210,20 +182,37 @@ int main()
     populateMatrix(matA);
     populateMatrix(matB);
 
+    // CPU takes about 20 seconds.
     // std::cout << "CPU Matmul... " << std::endl;
     // auto start = std::chrono::high_resolution_clock::now();
     // RowMatrix cpuResult{matA * matB};
     // reportTime(start);
 
+    std::cout << "#### Naive implementation ####\n";
     MatMulImpl implId{MatMulImpl::Naive};
-    RowMatrix gpuResult{matmulCuda(matA, matB, implId)};
+    for (std::size_t i{0}; i < 10; ++i)
+    {
+        std::cout << "Run " << i + 1 << "... ";
+        RowMatrix gpuResult{matmulCuda(matA, matB, implId)};
+    }
 
     implId = MatMulImpl::SharedMem;
-    gpuResult = matmulCuda(matA, matB, implId);
+    std::cout << "#### SharedMem Implementation ####\n";
+    for (std::size_t i{0}; i < 10; ++i)
+    {
+        std::cout << "Run " << i + 1 << "... ";
+        RowMatrix gpuResult2{matmulCuda(matA, matB, implId)};
+    }
 
     implId = MatMulImpl::cuBLAS;
-    gpuResult = matmulCuda(matA, matB, implId);
+    std::cout << "#### cuBLAS Implementation ####\n";
+    for (std::size_t i{0}; i < 10; ++i)
+    {
+        std::cout << "Run " << i + 1 << "... ";
+        RowMatrix gpuResult3{matmulCuda(matA, matB, implId)};
+    }
 
+    // NOTE: Use this to compare result between CPU and GPU mats.
     // float tolerance{0.0001f};
     // checkMatrixApproxEquality(cpuResult, gpuResult, tolerance);
 }

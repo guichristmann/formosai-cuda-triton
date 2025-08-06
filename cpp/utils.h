@@ -19,6 +19,17 @@ using TimePoint = std::chrono::high_resolution_clock::time_point;
         }                                                                                                           \
     } while (0)
 
+#define CUBLAS_CHECK(call)                                                  \
+    do                                                                      \
+    {                                                                       \
+        cublasStatus_t status = call;                                       \
+        if (status != CUBLAS_STATUS_SUCCESS)                                \
+        {                                                                   \
+            fprintf(stderr, "cuBLAS error at %s:%d\n", __FILE__, __LINE__); \
+            exit(EXIT_FAILURE);                                             \
+        }                                                                   \
+    } while (0)
+
 inline void reportTimeUntilNow(std::chrono::high_resolution_clock::time_point start, const std::string& identifier)
 {
     using namespace std::chrono;
@@ -117,11 +128,22 @@ void checkMatrixApproxEquality(const RowMatrix& mat1, const RowMatrix& mat2, flo
     std::cout << "-------------------------------------------------------------------\n";
 }
 
-void reportTime(TimePoint t)
+inline void reportTime(TimePoint t)
 {
     auto now{std::chrono::high_resolution_clock::now()};
 
     int64_t durationUs{std::chrono::duration_cast<std::chrono::microseconds>(now - t).count()};
 
     std::cout << "Took " << static_cast<double>(durationUs) / 1000.0 << " ms\n";
+}
+
+inline void populateMatrix(RowMatrix& m)
+{
+    for (std::size_t i{0}; i < m.rows(); ++i)
+    {
+        for (std::size_t j{0}; j < m.cols(); ++j)
+        {
+            m(i, j) = static_cast<float>(rand() % 1000 - 500) / 1000.0;
+        }
+    }
 }
