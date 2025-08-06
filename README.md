@@ -1,5 +1,37 @@
 # FormosAI -- Introduction to Kernel Programming with CUDA C++ and Triton
 
+## Outline for Meeting Aug 6.
+
+**CUDA C++**
+
+* Basics -- Hello World.
+    * Kernel Launch.
+    * Programming model (Perspective of a Single Thread).
+* VecAdd
+    * Blocks and Threads.
+    * Compute Sanitizer.
+* Matmul
+    * Implement Simple/Naive matmul.
+    * Let's measure performance (ncu) -- TFLOPS
+    * Implement Shared Memory matmul.
+    * Run cuBLAS matmul.
+
+**Triton**
+
+* Basics + Hello World.
+    * Kernel launch.
+    * Programming model (Perspective of a block, vectorized).
+    * Triton Interpret for debugging.
+* VecAdd
+* Matmul
+    * Tiled.
+    * Swizzling.
+* Benchmark - TFLOPS
+
+---
+## Examples
+
+```
 ├── cpp -- Kernels written with CUDA C++.
 │   ├── matmul.cu
 │   ├── vecadd.cu
@@ -12,34 +44,9 @@
 │   ├── vecadd_triton.py
 │   ├── requirements.txt
 │   └── utils.py
+```
 
 ---
 
-# Outline for Meeting Aug 6.
 
-## CUDA C++
-
-Basics -- Hello World.
-    * Kernel Launch.
-    * Programming model (Perspective of a Single Thread).
-VecAdd
-    * Blocks and Threads.
-    * Compute Sanitizer.
-Matmul
-    * Implement Simple/Naive matmul.
-    * Let's measure performance (ncu) -- TFLOPS
-    * Implement Shared Memory matmul.
-    * Run cuBLAS matmul.
-
-## Triton
-
-Basics + Hello World.
-    * Kernel launch.
-    * Programming model (Perspective of a block, vectorized).
-    * Triton Interpret for debugging.
-VecAdd
-Matmul
-    * Tiled.
-    * Swizzling.
-Benchmark - TFLOPS
     
