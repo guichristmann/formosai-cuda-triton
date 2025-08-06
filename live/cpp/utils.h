@@ -38,7 +38,8 @@ inline void reportTimeUntilNow(std::chrono::high_resolution_clock::time_point st
 
     int64_t durationUs{duration_cast<microseconds>(now - start).count()};
 
-    std::cout << "[" << identifier << "]: Took " << durationUs << " us.\n";
+    double durationMs{static_cast<double>(durationUs) / 1000.0};
+    std::cout << "[" << identifier << "]: Took " << durationMs << " ms.\n";
 }
 
 template <typename T>
